@@ -57,7 +57,7 @@ if [ ! -f "/config/config/network.xml" ]; then
 <NetworkConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <RequireHttps>false</RequireHttps>
   <BaseUrl />
-  <PublicHttpsPort>8920</PublicHttpsPort>
+  <PublicHttpsPort>8921</PublicHttpsPort>
   <HttpServerPortNumber>8097</HttpServerPortNumber>
   <HttpsRedirection>false</HttpsRedirection>
   <EnableIPv6>false</EnableIPv6>
@@ -69,7 +69,7 @@ if [ ! -f "/config/config/network.xml" ]; then
 EOF
 else
     echo "  🔧 Replacing all 8096 ports with 8097 in configuration XML files..."
-    find /config/config/ -name "*.xml" -exec sed -i 's/8096/8097/g' {} +
+    find /config/config/ -name "*.xml" -exec sed -i 's/8096/8097/g; s/8920/8921/g' {} + 2>/dev/null || true
 fi
 
 cp -f /config/config/network.xml /etc/jellyfin/network.xml 2>/dev/null || true
@@ -280,17 +280,8 @@ if [ -d "/media/videos" ]; then
 fi
 
 # ---- PATCH JELLYFIN APPSETTINGS.JSON (Runtime belt-and-suspenders) ----
-echo "  🔧 Runtime-patching Jellyfin appsettings.json: 8096 → 8097..."
-_PATCHED=0
-while IFS= read -r _f; do
-    if grep -q "8096" "$_f" 2>/dev/null; then
-        sed -i \
-          's|"http://0\.0\.0\.0:8096"|"http://0.0.0.0:8097"|g;
-           s|"https://0\.0\.0\.0:8096"|"https://0.0.0.0:8097"|g' \
-          "$_f" && echo "  ✅ Patched: $_f" && _PATCHED=$((_PATCHED+1))
-    fi
-done < <(find /usr /opt -name "appsettings*.json" 2>/dev/null)
-[ "$_PATCHED" -eq 0 ] && echo "  ℹ️  No appsettings.json with port 8096 found (already clean)."
+echo "  🔧 Runtime-patching Jellyfin appsettings.json to enforce port 8097..."
+find /etc /usr /opt -name "appsettings*.json" -exec sed -i 's/8096/8097/g; s/8920/8921/g' {} + 2>/dev/null || true
 
 echo "===================================================="
 echo "  🌐 Jellyfin is loading (Internal Port 8097)."
@@ -298,20 +289,10 @@ echo "  📝 Database and configurations run on local SSD"
 echo "  ⚡ Caching runs on RAM (/dev/shm)"
 echo "===================================================="
 
-# Force ASP.NET Core environment variables to bind to internal port 8097
+# Clean default ASP.NET Core bindings
 export ASPNETCORE_URLS="http://0.0.0.0:8097"
 export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
-
-# Force Kestrel endpoints via IConfiguration (definitive override path)
-export Kestrel__Endpoints__http__Url="http://0.0.0.0:8097"
-
-# CRITICAL FIX: Override the internal 'https' endpoint block to use standard HTTP 
-# on a local port. This prevents Kestrel from looking for SSL certificates.
-export Kestrel__Endpoints__https__Url="http://127.0.0.1:8920"
-
-unset Kestrel__Endpoints__Http__Url
-unset Kestrel__Endpoints__Default__Url
 
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 
