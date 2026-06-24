@@ -62,6 +62,9 @@ else
     echo "     Your configuration and user accounts will be ephemeral."
 fi
 
+# Ensure all config directories and files have open permissions for the container user (1000)
+chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
+
 # ---- PORT ROUTING CONFIGURATION (Change Jellyfin to 8097) ----
 # Ensure /etc/jellyfin directory exists
 mkdir -p /etc/jellyfin 2>/dev/null || true
@@ -454,6 +457,13 @@ echo "===================================================="
 export ASPNETCORE_URLS="http://0.0.0.0:8097"
 export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
+
+# Force Kestrel endpoints to bind to internal port 8097
+export Kestrel__Endpoints__Http__Url="http://0.0.0.0:8097"
+export Kestrel__Endpoints__Default__Url="http://0.0.0.0:8097"
+
+# Final permission check on config folders before launching Jellyfin
+chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 
 jellyfin \
     --datadir /config \
