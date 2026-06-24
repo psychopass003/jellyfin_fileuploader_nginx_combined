@@ -63,6 +63,9 @@ else
 fi
 
 # ---- PORT ROUTING CONFIGURATION (Change Jellyfin to 8097) ----
+# Ensure /etc/jellyfin directory exists
+mkdir -p /etc/jellyfin 2>/dev/null || true
+
 # Create a network.xml if it doesn't exist, or replace all 8096 ports in all XML files to 8097
 if [ ! -f "/config/config/network.xml" ]; then
     echo "  🔧 Creating default network.xml for internal port 8097..."
@@ -86,34 +89,39 @@ else
     find /config/config/ -name "*.xml" -exec sed -i 's/8096/8097/g' {} +
 fi
 
+# Copy config to /etc/jellyfin to handle system-wide configuration overrides
+cp -f /config/config/network.xml /etc/jellyfin/network.xml 2>/dev/null || true
+
 # Clean up any network bind addresses from backup settings to prevent Kestrel startup crash (error 134)
 if [ -f "/config/config/network.xml" ]; then
     echo "  🔧 Sanitizing network.xml bindings to prevent startup crash..."
     python3 -c "
 import xml.etree.ElementTree as ET
 import os
-xml_path = '/config/config/network.xml'
-try:
-    tree = ET.parse(xml_path)
-    root = tree.getroot()
-    
-    # Remove binding limits so it binds to 0.0.0.0
-    for tag in ['LocalAddress', 'BindToLocalAddress', 'LocalNetworkAddresses']:
-        elem = root.find(tag)
-        if elem is not None:
-            root.remove(elem)
-            
-    # Force default safe values
-    for tag, val in [('HttpServerPortNumber', '8097'), ('PublicPort', '8097'), ('EnableIPv6', 'false'), ('EnableIPv4', 'true'), ('RequireHttps', 'false'), ('EnableHttps', 'false')]:
-        elem = root.find(tag)
-        if elem is None:
-            elem = ET.SubElement(root, tag)
-        elem.text = val
+for xml_path in ['/config/config/network.xml', '/etc/jellyfin/network.xml']:
+    if not os.path.exists(xml_path):
+        continue
+    try:
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
         
-    tree.write(xml_path, encoding='utf-8', xml_declaration=True)
-    print('  ✅ network.xml successfully sanitized.')
-except Exception as e:
-    print('  ⚠️ Error sanitizing network.xml:', e)
+        # Remove binding limits so it binds to 0.0.0.0
+        for tag in ['LocalAddress', 'BindToLocalAddress', 'LocalNetworkAddresses']:
+            elem = root.find(tag)
+            if elem is not None:
+                root.remove(elem)
+                
+        # Force default safe values
+        for tag, val in [('HttpServerPortNumber', '8097'), ('PublicPort', '8097'), ('EnableIPv6', 'false'), ('EnableIPv4', 'true'), ('RequireHttps', 'false'), ('EnableHttps', 'false')]:
+            elem = root.find(tag)
+            if elem is None:
+                elem = ET.SubElement(root, tag)
+            elem.text = val
+            
+        tree.write(xml_path, encoding='utf-8', xml_declaration=True)
+        print(f'  ✅ {xml_path} successfully sanitized.')
+    except Exception as e:
+        print(f'  ⚠️ Error sanitizing {xml_path}:', e)
 "
 fi
 
