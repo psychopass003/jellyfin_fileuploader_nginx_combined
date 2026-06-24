@@ -483,9 +483,17 @@ unset Kestrel__Endpoints__Http__Url
 unset Kestrel__Endpoints__Default__Url
 # Final permission check on config folders before launching Jellyfin
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
-# Direct check and deletion of conflict markers right before launch to be bulletproof
-rm -f /config/.jellyfin-config /config/.jellyfin-cache /config/.jellyfin-transcode 2>/dev/null || true
-rm -f /config/config/.jellyfin-data /config/config/.jellyfin-cache /config/config/.jellyfin-transcode 2>/dev/null || true
+# Debugging background task to verify local connectivity to Jellyfin
+(
+    sleep 25
+    echo "=== Jellyfin Internal Connection Test ==="
+    echo "Testing connection to 127.0.0.1:8097..."
+    curl -I http://127.0.0.1:8097/health 2>&1
+    echo "Testing connection to localhost:8097..."
+    curl -I http://localhost:8097/health 2>&1
+    echo "Checking listening ports (hex):"
+    cat /proc/net/tcp 2>/dev/null | awk '{print $2}' | cut -d':' -f2 | sort | uniq
+) &
 jellyfin \
     --datadir /config \
     --configdir /config/config \
