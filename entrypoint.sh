@@ -478,9 +478,9 @@ echo "===================================================="
 export ASPNETCORE_URLS="http://0.0.0.0:8097"
 export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
-# Force Kestrel endpoints to bind to internal port 8097
-export Kestrel__Endpoints__Http__Url="http://0.0.0.0:8097"
-export Kestrel__Endpoints__Default__Url="http://0.0.0.0:8097"
+# Clear any Kestrel named endpoint configuration from the environment to avoid duplicate port bindings
+unset Kestrel__Endpoints__Http__Url
+unset Kestrel__Endpoints__Default__Url
 # Final permission check on config folders before launching Jellyfin
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 # Direct check and deletion of conflict markers right before launch to be bulletproof
