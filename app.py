@@ -19,7 +19,7 @@ TOTP_SECRET = os.environ.get("TOTP_SECRET")        # 2FA base32 seed (No fallbac
 totp = pyotp.TOTP(TOTP_SECRET) if TOTP_SECRET else None
 
 DATA_DIR = "/media/videos"                                           # Media folder
-JELLYFIN_INTERNAL_URL = "http://127.0.0.1:8097"                       # Internal port 8097
+JELLYFIN_INTERNAL_URL = "http://127.0.0.1:8096"                       # Internal port 8096
 
 if not SECRET_TOKEN or not TOTP_SECRET:
     print("====================================================")
@@ -732,7 +732,6 @@ def get_home(auth_token: str = Cookie(None)):
                 {scan_warning_html}
 
                 <div class="grid">
-                    <!-- Left Panel -->
                     <div class="panel">
                         <div>
                             <h3>📥 Download File from Web</h3>
@@ -748,7 +747,6 @@ def get_home(auth_token: str = Cookie(None)):
                                 <button type="submit" class="btn btn-primary" id="download-btn" style="width:100%; margin-top:0.5rem;">Download to Space</button>
                             </form>
 
-                            <!-- Visual Progress Bar -->
                             <div class="progress-container" id="progress-container" style="margin-top:1.5rem;">
                                 <div class="progress-header">
                                     <div class="progress-title" id="progress-title">Initializing...</div>
@@ -775,7 +773,6 @@ def get_home(auth_token: str = Cookie(None)):
                         </div>
                     </div>
 
-                    <!-- Right Panel -->
                     <div class="panel">
                         <div>
                             <h3 style="margin-bottom:1.5rem;">🎬 Video Library (/media/videos)</h3>
