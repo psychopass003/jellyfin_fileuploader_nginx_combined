@@ -457,20 +457,19 @@ if [ -d "/media/videos" ]; then
 fi
 
 echo "===================================================="
-echo "  🌐 Jellyfin is loading (Internal Port 8097)."
+echo "  🌐 Jellyfin is loading (Internal Port 8096)."
 echo "  📝 Database and configurations run on local SSD"
 echo "  ⚡ Caching runs on RAM (/dev/shm)"
 echo "===================================================="
 
-# Start Jellyfin in background so the shell script can catch shutdown signals
-# Force ASP.NET Core environment variables to bind to internal port 8097
-export ASPNETCORE_URLS="http://0.0.0.0:8097"
-export ASPNETCORE_HTTP_PORTS="8097"
+# Force ASP.NET Core environment variables to bind to native port 8096
+export ASPNETCORE_URLS="http://0.0.0.0:8096"
+export ASPNETCORE_HTTP_PORTS="8096"
 unset ASPNETCORE_HTTPS_PORTS
 
-# Force Kestrel endpoints to bind to internal port 8097
-export Kestrel__Endpoints__Http__Url="http://0.0.0.0:8097"
-export Kestrel__Endpoints__Default__Url="http://0.0.0.0:8097"
+# Force Kestrel endpoints to bind to native port 8096
+export Kestrel__Endpoints__Http__Url="http://0.0.0.0:8096"
+export Kestrel__Endpoints__Default__Url="http://0.0.0.0:8096"
 
 # Final permission check on config folders before launching Jellyfin
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
