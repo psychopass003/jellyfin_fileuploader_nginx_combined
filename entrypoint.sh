@@ -279,9 +279,11 @@ if [ -d "/media/videos" ]; then
     chmod -R 777 /media/videos || true
 fi
 
-# ---- PATCH JELLYFIN APPSETTINGS.JSON (Runtime belt-and-suspenders) ----
+# ---- PATCH JELLYFIN APPSETTINGS.JSON (Persistent & System) ----
 echo "  🔧 Runtime-patching Jellyfin appsettings.json to enforce port 8097..."
-find /etc /usr /opt -name "appsettings*.json" -exec sed -i 's/8096/8097/g; s/8920/8921/g' {} + 2>/dev/null || true
+# CRITICAL FIX: Include /config in the search path to catch the persistent file.
+# Change 8096 to 8097, and rewrite "https://" to "http://" to completely kill the cert check.
+find /config /etc /usr /opt -name "appsettings*.json" -type f -exec sed -i 's/8096/8097/g; s/8920/8921/g; s|"https://|"http://|g' {} + 2>/dev/null || true
 
 echo "===================================================="
 echo "  🌐 Jellyfin is loading (Internal Port 8097)."
@@ -289,10 +291,13 @@ echo "  📝 Database and configurations run on local SSD"
 echo "  ⚡ Caching runs on RAM (/dev/shm)"
 echo "===================================================="
 
-# Clean default ASP.NET Core bindings
+# Clean default ASP.NET Core bindings and set our strict 8097 env vars
 export ASPNETCORE_URLS="http://0.0.0.0:8097"
 export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
+
+export Kestrel__Endpoints__http__Url="http://0.0.0.0:8097"
+export Kestrel__Endpoints__https__Url="http://127.0.0.1:8921"
 
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 
