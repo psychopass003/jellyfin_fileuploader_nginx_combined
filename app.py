@@ -790,7 +790,7 @@ def get_home(auth_token: str = Cookie(None)):
             <script>
                 document.addEventListener("DOMContentLoaded", () => {{
                     const spaceHost = window.location.origin;
-                    const curlCommand = `curl -d "url=YOUR_URL&filename=YOUR_FILENAME" "\${spaceHost}/download?token=${SECRET_TOKEN or ''}"`;
+                    const curlCommand = `curl -d "url=YOUR_URL&filename=YOUR_FILENAME" "\${{spaceHost}}/download?token=${SECRET_TOKEN or ''}"`;
                     document.getElementById("curl-code").innerText = curlCommand;
                     
                     document.getElementById("copy-btn").addEventListener("click", () => {{
