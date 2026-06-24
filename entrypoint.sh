@@ -305,7 +305,11 @@ unset ASPNETCORE_HTTPS_PORTS
 
 # Force Kestrel endpoints via IConfiguration (definitive override path)
 export Kestrel__Endpoints__http__Url="http://0.0.0.0:8097"
-export Kestrel__Endpoints__https__Url="https://0.0.0.0:8920"
+
+# CRITICAL FIX: Override the internal 'https' endpoint block to use standard HTTP 
+# on a local port. This prevents Kestrel from looking for SSL certificates.
+export Kestrel__Endpoints__https__Url="http://127.0.0.1:8920"
+
 unset Kestrel__Endpoints__Http__Url
 unset Kestrel__Endpoints__Default__Url
 
