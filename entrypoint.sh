@@ -34,6 +34,11 @@ if [ -d "$PERSISTENT_DIR" ]; then
     fi
     # Automatically create a videos subdirectory to separate media from backups
     mkdir -p "$PERSISTENT_DIR/videos"
+    if [ "$PERSISTENT_DIR" != "/media" ]; then
+        echo "  🔗 Symlinking /media/videos to $PERSISTENT_DIR/videos for unified access..."
+        rm -rf /media/videos 2>/dev/null || true
+        ln -sf "$PERSISTENT_DIR/videos" /media/videos
+    fi
     echo "  📁 Checking for media files in root $PERSISTENT_DIR to reorganize..."
     find "$PERSISTENT_DIR" -maxdepth 1 -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.avi" -o -name "*.m4v" -o -name "*.mov" \) -exec mv {} "$PERSISTENT_DIR/videos/" \; 2>/dev/null || true
     # Restore configuration files if they exist
@@ -115,7 +120,6 @@ find /config/ -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's/8096
 find /etc/jellyfin/ -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's/8096/8097/g' {} + 2>/dev/null || true
 find /usr/share/jellyfin/ -name "appsettings.json" -exec sed -i 's/8096/8097/g' {} + 2>/dev/null || true
 find /usr/lib/jellyfin/ -name "appsettings.json" -exec sed -i 's/8096/8097/g' {} + 2>/dev/null || true
-find / -name "appsettings.json" -exec sed -i 's/8096/8097/g' {} + 2>/dev/null || true
 # Clean up any network bind addresses from backup settings to prevent Kestrel startup crash (error 134)
 # We use regex to ensure that namespace-prefixed or default-namespaced tags are correctly matched and sanitized.
 echo "  🔧 Sanitizing network.xml bindings to prevent startup crash..."
@@ -478,14 +482,14 @@ echo "===================================================="
 export ASPNETCORE_URLS="http://0.0.0.0:8097"
 export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
-# Clear any Kestrel named endpoint configuration from the environment to avoid duplicate port bindings
-unset Kestrel__Endpoints__Http__Url
-unset Kestrel__Endpoints__Default__Url
+# Force Kestrel named endpoint configuration from the environment to guarantee binding to port 8097
+export Kestrel__Endpoints__Http__Url="http://0.0.0.0:8097"
+export Kestrel__Endpoints__Default__Url="http://0.0.0.0:8097"
 # Final permission check on config folders before launching Jellyfin
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 # Debugging background task to verify local connectivity to Jellyfin
 (
-    sleep 35
+    sleep 5
     echo "=== Jellyfin Internal Connection Test ==="
     echo "Testing connection to 127.0.0.1:8097..."
     curl -I http://127.0.0.1:8097/health 2>&1
