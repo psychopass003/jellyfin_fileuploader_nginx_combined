@@ -3,10 +3,8 @@ title: Personal Use
 emoji: 🌍
 colorFrom: gray
 colorTo: yellow
-sdk: gradio
-sdk_version: 6.19.0
-python_version: '3.13'
-app_file: app.py
+sdk: docker
+app_port: 8096
 pinned: false
 ---
 
