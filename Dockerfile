@@ -52,7 +52,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 RUN chmod +x /scripts/*.sh
 
 # ---- Expose public port ----
-EXPOSE 8096
+EXPOSE 7860
 
 # ---- Health check (Checks Nginx which forwards to Jellyfin) ----
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
