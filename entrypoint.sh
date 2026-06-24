@@ -206,6 +206,99 @@ cleanup() {
 }
 trap cleanup EXIT SIGTERM SIGINT
 
+# ---- Helper Background Services defined as inline functions ----
+
+run_keep_alive() {
+    echo "  🏓 Keep-alive service active."
+    while true; do
+        sleep 300  # 5 minutes
+        
+        # 1. Local Health Check (helpful for Space logs)
+        local HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8097/health 2>/dev/null)
+        if [ "$HTTP_CODE" = "200" ]; then
+            echo "[keep-alive] \$(date '+%H:%M:%S') - Jellyfin healthy (HTTP \$HTTP_CODE)"
+        else
+            echo "[keep-alive] \$(date '+%H:%M:%S') - ⚠️ Jellyfin returned HTTP \$HTTP_CODE"
+        fi
+
+        # 2. External Space Ping (only runs if SPACE_HOST is set in environment)
+        if [ -n "\$SPACE_HOST" ]; then
+            local PING_URL=""
+            if [[ ! "\$SPACE_HOST" =~ ^https?:// ]]; then
+                PING_URL="https://\$SPACE_HOST"
+            else
+                PING_URL="\$SPACE_HOST"
+            fi
+            
+            # Ping the external URL
+            local EXT_CODE=$(curl -s -o /dev/null -w "%{http_code}" "\$PING_URL" 2>/dev/null)
+            echo "[keep-alive] \$(date '+%H:%M:%S') - Pinged external \$PING_URL (HTTP \$EXT_CODE)"
+        fi
+    done
+}
+
+check_and_update_element() {
+    local element_dir="/usr/share/nginx/element"
+    local version_file="/config/config/element_version.txt"
+    
+    echo "[element-updater] \$(date) - Checking for latest Element Web version on GitHub..."
+    local latest_tag=\$(curl -s https://api.github.com/repos/element-hq/element-web/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [ -z "\$latest_tag" ]; then
+        echo "[element-updater] ⚠️ Failed to fetch latest release version from GitHub API. Retrying later."
+        return 1
+    fi
+    
+    local current_version=""
+    if [ -f "\$version_file" ]; then
+        current_version=\$(cat "\$version_file")
+    fi
+    
+    if [ "\$latest_tag" != "\$current_version" ]; then
+        echo "[element-updater] 🚀 New version detected: \$latest_tag (Current: \$current_version). Updating..."
+        
+        local tar_url="https://github.com/element-hq/element-web/releases/download/\${latest_tag}/element-\${latest_tag}.tar.gz"
+        wget -q "\$tar_url" -O /tmp/element_update.tar.gz
+        
+        if [ \$? -eq 0 ] && [ -f "/tmp/element_update.tar.gz" ]; then
+            mkdir -p /tmp/element_new
+            tar -xf /tmp/element_update.tar.gz -C /tmp/element_new --strip-components=1
+            
+            if [ -f "\${element_dir}/config.json" ]; then
+                cp "\${element_dir}/config.json" /tmp/element_new/config.json
+            else
+                echo '{"default_server_config":{"m.homeserver":{"base_url":"https://matrix.org","server_name":"matrix.org"},"m.identity_server":{"base_url":"https://vector.im"}},"brand":"Element"}' > /tmp/element_new/config.json
+            fi
+            
+            rm -rf "\${element_dir:?}"/*
+            cp -rf /tmp/element_new/. "\${element_dir}/"
+            chmod -R 755 "\${element_dir}"
+            
+            rm -rf /tmp/element_new /tmp/element_update.tar.gz
+            echo -n "\$latest_tag" > "\$version_file"
+            echo "[element-updater] ✅ Successfully updated Element Web to \$latest_tag"
+        else
+            echo "[element-updater] ⚠️ Download failed for URL: \$tar_url"
+            rm -f /tmp/element_update.tar.gz
+        fi
+    else
+        echo "[element-updater] Element Web is already up-to-date (\$latest_tag)."
+    fi
+}
+
+run_element_updater() {
+    check_and_update_element || true
+    while true; do
+        local current_time=\$(TZ="Asia/Kolkata" date '+%H:%M')
+        if [ "\$current_time" = "02:00" ]; then
+            check_and_update_element || true
+            sleep 70
+        fi
+        sleep 30
+    done
+}
+
+
 # Periodically backup database files to persistent storage every 5 minutes
 (while true; do
     sleep 300
@@ -254,10 +347,10 @@ python3 -m uvicorn app:app --host 127.0.0.1 --port 8000 &
 nginx &
 
 # Start keep-alive service
-/scripts/keep_alive.sh &
+run_keep_alive &
 
 # Start Element Web auto-updater service
-/scripts/update_element.sh &
+run_element_updater &
 
 # ---- Step 2.7: Background task to auto-inject Jellyfin API Key into database ----
 (
@@ -349,9 +442,9 @@ echo "  ⚡ Caching runs on RAM (/dev/shm)"
 echo "===================================================="
 
 # Start Jellyfin in background so the shell script can catch shutdown signals
-# Unset ASP.NET Core port override environment variables to force Jellyfin to use internal port 8097 from network.xml
-unset ASPNETCORE_URLS
-unset ASPNETCORE_HTTP_PORTS
+# Force ASP.NET Core environment variables to bind to internal port 8097
+export ASPNETCORE_URLS="http://0.0.0.0:8097"
+export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
 
 jellyfin \
