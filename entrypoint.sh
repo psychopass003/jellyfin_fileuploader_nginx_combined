@@ -65,31 +65,41 @@ fi
 # Ensure all config directories and files have open permissions for the container user (1000)
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 
-# ---- PORT ROUTING CONFIGURATION (Change Jellyfin to 8097) ----
+# ---- PORT ROUTING CONFIGURATION ----
 # Ensure /etc/jellyfin directory exists
 mkdir -p /etc/jellyfin 2>/dev/null || true
 
-# Create a network.xml if it doesn't exist, or replace all 8096 ports in all XML files to 8097
-if [ ! -f "/config/config/network.xml" ]; then
-    echo "  🔧 Creating default network.xml for internal port 8097..."
-    cat <<EOF > /config/config/network.xml
-<?xml version="1.0" encoding="utf-8"?>
-<NetworkConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <RequireHttps>false</RequireHttps>
-  <BaseUrl />
-  <PublicHttpsPort>8920</PublicHttpsPort>
-  <HttpServerPortNumber>8097</HttpServerPortNumber>
-  <HttpsRedirection>false</HttpsRedirection>
-  <EnableIPv6>false</EnableIPv6>
-  <EnableIPv4>true</EnableIPv4>
-  <EnableSSDP>false</EnableSSDP>
-  <EnableUPnP>false</EnableUPnP>
-  <PublicPort>8097</PublicPort>
-</NetworkConfiguration>
-EOF
-else
-    echo "  🔧 Replacing all 8096 ports with 8097 in configuration XML files..."
-    find /config/config/ -name "*.xml" -exec sed -i 's/8096/8097/g' {} +
+# Clean up any network bind addresses from backup settings to prevent Kestrel startup crash (error 134)
+if [ -f "/config/config/network.xml" ]; then
+    echo "  🔧 Sanitizing network.xml bindings to prevent startup crash..."
+    python3 -c "
+import xml.etree.ElementTree as ET
+import os
+for xml_path in ['/config/config/network.xml', '/etc/jellyfin/network.xml']:
+    if not os.path.exists(xml_path):
+        continue
+    try:
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        
+        # Remove binding limits so it binds to 0.0.0.0
+        for tag in ['LocalAddress', 'BindToLocalAddress', 'LocalNetworkAddresses']:
+            elem = root.find(tag)
+            if elem is not None:
+                root.remove(elem)
+                
+        # Force default safe values (Now natively 8096)
+        for tag, val in [('HttpServerPortNumber', '8096'), ('PublicPort', '8096'), ('EnableIPv6', 'false'), ('EnableIPv4', 'true'), ('RequireHttps', 'false'), ('EnableHttps', 'false')]:
+            elem = root.find(tag)
+            if elem is None:
+                elem = ET.SubElement(root, tag)
+            elem.text = val
+            
+        tree.write(xml_path, encoding='utf-8', xml_declaration=True)
+        print(f'  ✅ {xml_path} successfully sanitized.')
+    except Exception as e:
+        print(f'  ⚠️ Error sanitizing {xml_path}:', e)
+"
 fi
 
 # Copy config to /etc/jellyfin to handle system-wide configuration overrides
