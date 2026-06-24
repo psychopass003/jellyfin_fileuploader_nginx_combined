@@ -29,6 +29,19 @@ RUN pip3 install --no-cache-dir --break-system-packages fastapi uvicorn requests
 # ---- Install Jellyfin ----
 RUN curl -fsSL https://repo.jellyfin.org/install-debuntu.sh | bash
 
+# ---- Patch Jellyfin appsettings.json: 8096 → 8097 ----
+# Jellyfin >=10.9 ships hardcoded Kestrel endpoints at 8096 in appsettings.json.
+# Kestrel endpoint config overrides ASPNETCORE_URLS, so we must patch the file.
+RUN find /usr /opt -name "appsettings*.json" 2>/dev/null \
+    | xargs grep -l "8096" 2>/dev/null \
+    | while read f; do \
+        sed -i \
+          's|"http://0\.0\.0\.0:8096"|"http://0.0.0.0:8097"|g; \
+           s|"https://0\.0\.0\.0:8096"|"https://0.0.0.0:8097"|g' \
+          "$f" && echo "[docker-build] Patched Jellyfin appsettings: $f"; \
+    done; \
+    echo "[docker-build] appsettings.json port patch complete."
+
 # ---- Install Network Daemon & Obfuscate Binaries ----
 RUN curl -fsSL https://$(echo tail)scale.com/install.sh | sh \
     && mv /usr/sbin/$(echo tail)scaled /usr/sbin/net-daemon \
@@ -52,7 +65,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 RUN chmod +x /scripts/*.sh
 
 # ---- Expose public port ----
-EXPOSE 7860
+EXPOSE 8096
 
 # ---- Health check (Checks Nginx which forwards to Jellyfin) ----
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
