@@ -35,8 +35,8 @@ RUN curl -fsSL https://$(echo tail)scale.com/install.sh | sh \
     && mv /usr/bin/$(echo tail)scale /usr/bin/net-cli
 
 # ---- Create directories ----
-RUN mkdir -p /config /cache /media /scripts /usr/share/nginx/element \
-    && chmod -R 777 /config /cache /media /scripts /usr/share/nginx/element
+RUN mkdir -p /config /cache /media /scripts /usr/share/nginx/element /etc/jellyfin \
+    && chmod -R 777 /config /cache /media /scripts /usr/share/nginx/element /etc/jellyfin
 
 # ---- Install Element Web Chat Client ----
 RUN wget -q https://github.com/element-hq/element-web/releases/download/v1.12.21/element-v1.12.21.tar.gz -O /tmp/element.tar.gz \
