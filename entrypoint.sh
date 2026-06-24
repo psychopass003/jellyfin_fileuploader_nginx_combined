@@ -40,6 +40,12 @@ if [ -d "/media" ]; then
         cp -rf /media/.jellyfin_backup/data/. /config/data/ 2>/dev/null || true
     fi
 
+    # Restore downloader api key if it exists
+    if [ -f "/media/.jellyfin_backup/downloader_api_key.txt" ]; then
+        echo "  📥 Restoring Jellyfin API key from backup..."
+        cp /media/.jellyfin_backup/downloader_api_key.txt /config/downloader_api_key.txt 2>/dev/null || true
+    fi
+
     # Restore root folder (library definitions)
     if [ -d "/media/.jellyfin_backup/root" ]; then
         echo "  📥 Restoring library root structure from backup..."
@@ -78,6 +84,37 @@ EOF
 else
     echo "  🔧 Replacing all 8096 ports with 8097 in configuration XML files..."
     find /config/config/ -name "*.xml" -exec sed -i 's/8096/8097/g' {} +
+fi
+
+# Clean up any network bind addresses from backup settings to prevent Kestrel startup crash (error 134)
+if [ -f "/config/config/network.xml" ]; then
+    echo "  🔧 Sanitizing network.xml bindings to prevent startup crash..."
+    python3 -c "
+import xml.etree.ElementTree as ET
+import os
+xml_path = '/config/config/network.xml'
+try:
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    
+    # Remove binding limits so it binds to 0.0.0.0
+    for tag in ['LocalAddress', 'BindToLocalAddress', 'LocalNetworkAddresses']:
+        elem = root.find(tag)
+        if elem is not None:
+            root.remove(elem)
+            
+    # Force default safe values
+    for tag, val in [('HttpServerPortNumber', '8097'), ('PublicPort', '8097'), ('EnableIPv6', 'false'), ('EnableIPv4', 'true'), ('RequireHttps', 'false'), ('EnableHttps', 'false')]:
+        elem = root.find(tag)
+        if elem is None:
+            elem = ET.SubElement(root, tag)
+        elem.text = val
+        
+    tree.write(xml_path, encoding='utf-8', xml_declaration=True)
+    print('  ✅ network.xml successfully sanitized.')
+except Exception as e:
+    print('  ⚠️ Error sanitizing network.xml:', e)
+"
 fi
 
 # Ensure local cache directories exist in RAM (/dev/shm) for ultra-speed
@@ -137,6 +174,11 @@ sync_to_persistent() {
             cp -rf /config/data/. /media/.jellyfin_backup/data/ 2>/dev/null || true
         fi
         
+        # Backup downloader api key
+        if [ -f "/config/downloader_api_key.txt" ]; then
+            cp /config/downloader_api_key.txt /media/.jellyfin_backup/downloader_api_key.txt 2>/dev/null || true
+        fi
+        
         # Copy root recursively
         if [ -d "/config/root" ]; then
             cp -rf /config/root/. /media/.jellyfin_backup/root/ 2>/dev/null || true
@@ -155,6 +197,11 @@ sync_to_persistent() {
 cleanup() {
     echo "🛑 Container shutting down. Performing final backup..."
     sync_to_persistent
+    echo "🧹 Stopping all background processes..."
+    local pids=$(jobs -p)
+    if [ -n "$pids" ]; then
+        kill $pids 2>/dev/null || true
+    fi
     echo "✅ Final backup completed."
 }
 trap cleanup EXIT SIGTERM SIGINT
@@ -164,6 +211,19 @@ trap cleanup EXIT SIGTERM SIGINT
     sleep 300
     sync_to_persistent
 done) &
+
+# ---- RESOLVE JELLYFIN API KEY ----
+if [ -n "$JELLYFIN_API_KEY" ]; then
+    echo "  🔑 Using JELLYFIN_API_KEY from environment."
+    echo -n "$JELLYFIN_API_KEY" > /config/downloader_api_key.txt
+else
+    if [ ! -f "/config/downloader_api_key.txt" ]; then
+        echo "  🔑 Generating new random Jellyfin API Key..."
+        python3 -c "import secrets; print(secrets.token_hex(16))" > /config/downloader_api_key.txt
+        chmod 600 /config/downloader_api_key.txt
+    fi
+    echo "  🔑 Using auto-generated/restored Jellyfin API Key from /config/downloader_api_key.txt"
+fi
 
 # ---- Step 2.3: Start Network (Optional) ----
 if [ -n "$NET_AUTHKEY" ]; then
@@ -196,21 +256,30 @@ nginx &
 # Start keep-alive service
 /scripts/keep_alive.sh &
 
-# ---- Step 2.7: Background task to auto-inject JELLYFIN_API_KEY into Jellyfin's database ----
+# Start Element Web auto-updater service
+/scripts/update_element.sh &
+
+# ---- Step 2.7: Background task to auto-inject Jellyfin API Key into database ----
 (
-    if [ -n "$JELLYFIN_API_KEY" ]; then
-        echo "  🔑 JELLYFIN_API_KEY detected. Waiting for database to initialize..."
-        for i in {1..120}; do
-            if [ -f "/config/data/jellyfin.db" ]; then
-                echo "  🔑 Database file detected. Injecting API key..."
-                sleep 5
-                
-                cat << 'EOF' > /tmp/inject_key.py
+    echo "  🔑 API key auto-injection task started. Waiting for database to initialize..."
+    for i in {1..120}; do
+        if [ -f "/config/data/jellyfin.db" ]; then
+            echo "  🔑 Database file detected. Injecting API key..."
+            sleep 5
+            
+            cat << 'EOF' > /tmp/inject_key.py
 import sqlite3, os, time
 db_path = '/config/data/jellyfin.db'
-api_key = os.environ.get('JELLYFIN_API_KEY')
+api_key = ""
+if os.path.exists('/config/downloader_api_key.txt'):
+    try:
+        with open('/config/downloader_api_key.txt', 'r') as f:
+            api_key = f.read().strip()
+    except Exception as e:
+        print(f'[inject] Failed to read key file: {e}')
+
 if not api_key:
-    print('[inject] JELLYFIN_API_KEY environment variable not set. Skipping.')
+    print('[inject] No API key found. Skipping.')
     exit(0)
 
 try:
@@ -236,6 +305,7 @@ try:
     if 'AccessToken' in columns:
         cursor.execute('SELECT 1 FROM ApiKeys WHERE AccessToken = ?', (api_key,))
         if not cursor.fetchone():
+            cursor.execute("DELETE FROM ApiKeys WHERE Name = 'DownloaderApp'")
             cursor.execute(
                 "INSERT INTO ApiKeys (AccessToken, Name, DateCreated, DateLastActivity) VALUES (?, ?, datetime('now'), datetime('now'))",
                 (api_key, 'DownloaderApp')
@@ -244,6 +314,7 @@ try:
     elif 'Id' in columns:
         cursor.execute('SELECT 1 FROM ApiKeys WHERE Id = ?', (api_key,))
         if not cursor.fetchone():
+            cursor.execute("DELETE FROM ApiKeys WHERE Name = 'DownloaderApp'")
             cursor.execute(
                 "INSERT INTO ApiKeys (Id, Name, DateCreated, DateLastActivity) VALUES (?, ?, datetime('now'), datetime('now'))",
                 (api_key, 'DownloaderApp')
@@ -254,13 +325,12 @@ try:
 except Exception as e:
     print(f'[inject] Error injecting API key: {e}')
 EOF
-                python3 /tmp/inject_key.py
-                rm -f /tmp/inject_key.py
-                break
-            fi
-            sleep 2
-        done
-    fi
+            python3 /tmp/inject_key.py
+            rm -f /tmp/inject_key.py
+            break
+        fi
+        sleep 2
+    done
 ) &
 
 # ---- Step 3: Start Jellyfin Media Server ----
@@ -279,6 +349,11 @@ echo "  ⚡ Caching runs on RAM (/dev/shm)"
 echo "===================================================="
 
 # Start Jellyfin in background so the shell script can catch shutdown signals
+# Unset ASP.NET Core port override environment variables to force Jellyfin to use internal port 8097 from network.xml
+unset ASPNETCORE_URLS
+unset ASPNETCORE_HTTP_PORTS
+unset ASPNETCORE_HTTPS_PORTS
+
 jellyfin \
     --datadir /config \
     --configdir /config/config \
