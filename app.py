@@ -19,7 +19,7 @@ TOTP_SECRET = os.environ.get("TOTP_SECRET")        # 2FA base32 seed (No fallbac
 totp = pyotp.TOTP(TOTP_SECRET) if TOTP_SECRET else None
 
 DATA_DIR = "/media/videos"                                           # Media folder
-JELLYFIN_INTERNAL_URL = "http://127.0.0.1:8096"                       # Internal port 8096
+JELLYFIN_INTERNAL_URL = "http://127.0.0.1:8097"                       # Internal port 8096
 
 if not SECRET_TOKEN or not TOTP_SECRET:
     print("====================================================")
