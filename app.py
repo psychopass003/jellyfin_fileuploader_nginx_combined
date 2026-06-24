@@ -8,25 +8,20 @@ import pyotp
 import time
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-
 app = FastAPI()
-
 # ---------------------------------------------------------------------------
 # Configs (Reads from Hugging Face Secrets with secure default fallbacks)
 # ---------------------------------------------------------------------------
 SECRET_TOKEN = os.environ.get("STORAGE_PASSWORD")      # Passcode (No fallback for security)
 TOTP_SECRET = os.environ.get("TOTP_SECRET")        # 2FA base32 seed (No fallback for security)
 totp = pyotp.TOTP(TOTP_SECRET) if TOTP_SECRET else None
-
 DATA_DIR = "/media/videos"                                           # Media folder
-JELLYFIN_INTERNAL_URL = "http://127.0.0.1:8097"                       # Internal port 8096
-
+JELLYFIN_INTERNAL_URL = "http://127.0.0.1:8097"                       # Internal port 8097
 if not SECRET_TOKEN or not TOTP_SECRET:
     print("====================================================")
     print("⚠️ WARNING: STORAGE_PASSWORD or TOTP_SECRET is not set!")
     print("Please set them in your Hugging Face Space Secrets.")
     print("====================================================")
-
 # Read JELLYFIN_API_KEY from environment or fallback to auto-generated file
 JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
 if not JELLYFIN_API_KEY and os.path.exists("/config/downloader_api_key.txt"):
@@ -35,9 +30,7 @@ if not JELLYFIN_API_KEY and os.path.exists("/config/downloader_api_key.txt"):
             JELLYFIN_API_KEY = f.read().strip()
     except Exception as e:
         print(f"[config] Failed to read /config/downloader_api_key.txt: {e}")
-
 os.makedirs(DATA_DIR, exist_ok=True)
-
 # Print 2FA setup to terminal logs securely on start rather than rendering publicly
 if totp:
     pairing_uri = totp.provisioning_uri(name="SpaceStorage", issuer_name="HuggingFace")
@@ -46,7 +39,6 @@ if totp:
     print(f"  Manual Key: {TOTP_SECRET}")
     print(f"  Setup URI: {pairing_uri}")
     print("====================================================")
-
 # Global trackers for download progress & cancellation
 current_download = {
     "filename": "",
@@ -55,19 +47,16 @@ current_download = {
     "status": "idle"  # idle, downloading, extracting
 }
 cancel_download_requested = False
-
 # Prevents browser from caching the login state (fixes logout button issue)
 NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
     "Pragma": "no-cache",
     "Expires": "0"
 }
-
 def is_authenticated(auth_token: str):
     if not SECRET_TOKEN:
         return False
     return auth_token == SECRET_TOKEN
-
 def trigger_jellyfin_scan():
     """
     Triggers Jellyfin's Library scan internally using the API key.
@@ -77,7 +66,6 @@ def trigger_jellyfin_scan():
     if not JELLYFIN_API_KEY:
         print("[scan] JELLYFIN_API_KEY not set — skipping Jellyfin library refresh. Set it in HF Space secrets.")
         return False
-
     print(f"[scan] Sending library refresh request to Jellyfin at {JELLYFIN_INTERNAL_URL}...")
     try:
         headers = {
@@ -99,7 +87,6 @@ def trigger_jellyfin_scan():
     except Exception as e:
         print(f"[scan] Failed to reach Jellyfin for library refresh: {e}")
         return False
-
 # =========================================================================
 # 1. WEB HOMEPAGE (Dashboard / Login UI)
 # =========================================================================
@@ -234,7 +221,6 @@ def get_home(auth_token: str = Cookie(None)):
         </html>
         """
         return HTMLResponse(content=html_login, headers=NO_CACHE_HEADERS)
-
     # CASE B: If logged in, render the dashboard
     files = []
     # Recursively list files to show subdirectories nicely
@@ -268,7 +254,6 @@ def get_home(auth_token: str = Cookie(None)):
             
     if not files:
         files_list_html = "<li class='file-item empty-state'>No media files found in /media/videos yet.</li>"
-
     scan_warning_html = ""
     if not JELLYFIN_API_KEY:
         scan_warning_html = """
@@ -277,7 +262,6 @@ def get_home(auth_token: str = Cookie(None)):
             won't auto-refresh to see them. Please ensure the latest <b>entrypoint.sh</b> is deployed to generate this automatically.
         </div>
         """
-
     html_dashboard = f"""
     <html>
         <head>
@@ -728,10 +712,9 @@ def get_home(auth_token: str = Cookie(None)):
                         <a href="/logout" class="btn btn-danger">Log Out</a>
                     </div>
                 </header>
-
                 {scan_warning_html}
-
                 <div class="grid">
+                    <!-- Left Panel -->
                     <div class="panel">
                         <div>
                             <h3>📥 Download File from Web</h3>
@@ -746,7 +729,7 @@ def get_home(auth_token: str = Cookie(None)):
                                 </div>
                                 <button type="submit" class="btn btn-primary" id="download-btn" style="width:100%; margin-top:0.5rem;">Download to Space</button>
                             </form>
-
+                            <!-- Visual Progress Bar -->
                             <div class="progress-container" id="progress-container" style="margin-top:1.5rem;">
                                 <div class="progress-header">
                                     <div class="progress-title" id="progress-title">Initializing...</div>
@@ -761,7 +744,6 @@ def get_home(auth_token: str = Cookie(None)):
                                 </div>
                             </div>
                         </div>
-
                         <div class="code-section">
                             <h3>💻 Automate with Curl</h3>
                             <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.5rem 0; line-height:1.4;">Copy and run this command in your local terminal to download without 2FA validation:</p>
@@ -772,7 +754,7 @@ def get_home(auth_token: str = Cookie(None)):
                             <div style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">💡 Replace <b>YOUR_URL</b> and <b>YOUR_FILENAME</b> in the copied command.</div>
                         </div>
                     </div>
-
+                    <!-- Right Panel -->
                     <div class="panel">
                         <div>
                             <h3 style="margin-bottom:1.5rem;">🎬 Video Library (/media/videos)</h3>
@@ -783,7 +765,6 @@ def get_home(auth_token: str = Cookie(None)):
                     </div>
                 </div>
             </div>
-
             <script>
                 document.addEventListener("DOMContentLoaded", () => {{
                     const spaceHost = window.location.origin;
@@ -797,17 +778,14 @@ def get_home(auth_token: str = Cookie(None)):
                         setTimeout(() => btn.innerText = "Copy", 1500);
                     }});
                 }});
-
                 function renameFile(filename) {{
                     const defaultSuggestion = filename;
-                    const newName = prompt(`Rename File:\\n"\${filename}"\\n\\nEnter new filename (make sure to include the extension e.g. .mp4 or .mkv):`, defaultSuggestion);
+                    const newName = prompt(`Rename File:\\n"\${{filename}}"\\n\\nEnter new filename (make sure to include the extension e.g. .mp4 or .mkv):`, defaultSuggestion);
                     if (newName && newName.trim() !== "" && newName.trim() !== filename) {{
-                        window.location.href = `/rename?old=\${encodeURIComponent(filename)}&new=\${encodeURIComponent(newName.trim())}`;
+                        window.location.href = `/rename?old=\${{encodeURIComponent(filename)}}&new=\${{encodeURIComponent(newName.trim())}}`;
                     }}
                 }}
-
                 let pollInterval = null;
-
                 document.getElementById('cancel-download-btn').addEventListener('click', async () => {{
                     if (confirm("Are you sure you want to cancel the active download?")) {{
                         try {{
@@ -818,7 +796,6 @@ def get_home(auth_token: str = Cookie(None)):
                         }}
                     }}
                 }});
-
                 document.getElementById('download-form').addEventListener('submit', async (e) => {{
                     e.preventDefault();
                     const formData = new FormData(e.target);
@@ -837,8 +814,7 @@ def get_home(auth_token: str = Cookie(None)):
                     progressBar.style.width = '0%';
                     progressText.innerText = '0%';
                     progressSpeed.innerText = 'Initializing connection...';
-                    progressTitle.innerText = `Downloading: \${filenameInput}`;
-
+                    progressTitle.innerText = `Downloading: \${{filenameInput}}`;
                     pollInterval = setInterval(async () => {{
                         try {{
                             const res = await fetch('/progress');
@@ -846,7 +822,7 @@ def get_home(auth_token: str = Cookie(None)):
                             if (data.status === 'downloading') {{
                                 progressBar.style.width = data.progress + '%';
                                 progressText.innerText = data.progress + '%';
-                                progressSpeed.innerText = `Speed: \${data.speed}`;
+                                progressSpeed.innerText = `Speed: \${{data.speed}}`;
                             }} else if (data.status === 'extracting') {{
                                 progressBar.style.width = '95%';
                                 progressText.innerText = '95%';
@@ -856,7 +832,6 @@ def get_home(auth_token: str = Cookie(None)):
                             console.error(err);
                         }}
                     }}, 1000);
-
                     try {{
                         const response = await fetch('/download', {{
                             method: 'POST',
@@ -894,7 +869,6 @@ def get_home(auth_token: str = Cookie(None)):
     </html>
     """
     return HTMLResponse(content=html_dashboard, headers=NO_CACHE_HEADERS)
-
 # =========================================================================
 # 2. LOGIN / LOGOUT WITH USERNAME & 2FA BUFFER (Iframe compatible)
 # =========================================================================
@@ -915,7 +889,6 @@ def login(username: str = Form(...), password: str = Form(...), totp_code: str =
         )
         return response
     return HTMLResponse("<h2>Invalid credentials! <a href='/download'>Try again</a></h2>", status_code=401)
-
 @app.get("/logout")
 def logout():
     response = RedirectResponse(url="/download", status_code=303)
@@ -928,14 +901,12 @@ def logout():
         secure=True
     )
     return response
-
 # =========================================================================
 # 3. PROGRESS LOGGING & CANCELLATION ENDPOINTS
 # =========================================================================
 @app.get("/progress")
 def get_progress():
     return current_download
-
 @app.post("/download/cancel")
 @app.get("/download/cancel")
 def cancel_download(auth_token: str = Cookie(None)):
@@ -944,7 +915,6 @@ def cancel_download(auth_token: str = Cookie(None)):
     global cancel_download_requested
     cancel_download_requested = True
     return {"status": "success", "message": "Cancellation request received"}
-
 # =========================================================================
 # 3.5 RENAME FILE ENDPOINT
 # =========================================================================
@@ -976,7 +946,6 @@ def rename_file(old: str, new: str, auth_token: str = Cookie(None)):
         trigger_jellyfin_scan()
         
     return RedirectResponse(url="/download", status_code=303)
-
 # =========================================================================
 # 3.6 MANUAL LIBRARY RESCAN ENDPOINT
 # =========================================================================
@@ -1002,7 +971,6 @@ def manual_scan(auth_token: str = Cookie(None)):
         </body>
     </html>
     """, status_code=500)
-
 def fix_permissions_recursive(directory):
     """
     Recursively apply read/write permissions to files and read/write/execute to directories
@@ -1021,7 +989,6 @@ def fix_permissions_recursive(directory):
                 os.chmod(file_path, 0o666)
             except Exception as e:
                 print(f"[perms] Failed chmod 666 on file {file_path}: {e}")
-
 # =========================================================================
 # 4. DOWNLOAD & EXTRACT API
 # =========================================================================
@@ -1102,13 +1069,10 @@ def download_file(url: str = Form(...), filename: str = Form(...), token: str = 
             with tarfile.open(save_path, "r:gz") as tar_ref:
                 tar_ref.extractall(DATA_DIR)
             os.remove(save_path)
-
         # Fix permissions recursively across the entire media directory
         fix_permissions_recursive(DATA_DIR)
-
         # Tell Jellyfin to pick up the new file right now.
         trigger_jellyfin_scan()
-
         current_download = {"filename": "", "progress": 0.0, "speed": "0.0 MB/s", "status": "idle"}
         
         if auth_token == SECRET_TOKEN:
@@ -1118,27 +1082,22 @@ def download_file(url: str = Form(...), filename: str = Form(...), token: str = 
     except Exception as e:
         current_download = {"filename": "", "progress": 0.0, "speed": "0.0 MB/s", "status": "idle"}
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/view/{filename:path}")
 def view_file(filename: str, auth_token: str = Cookie(None)):
     if not is_authenticated(auth_token):
         return HTMLResponse("<h2>Unauthorized! Please log in.</h2>", status_code=401)
-
     file_path = os.path.join(DATA_DIR, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
         
     return FileResponse(file_path)
-
 @app.get("/delete/{filename:path}")
 def delete_file(filename: str, auth_token: str = Cookie(None)):
     if not is_authenticated(auth_token):
         return HTMLResponse("<h2>Unauthorized! Please log in.</h2>", status_code=401)
-
     file_path = os.path.join(DATA_DIR, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-
     try:
         if os.path.isdir(file_path):
             shutil.rmtree(file_path)
@@ -1152,5 +1111,4 @@ def delete_file(filename: str, auth_token: str = Cookie(None)):
     except Exception as e:
         print(f"[delete] Failed to delete file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete: {e}")
-
     return RedirectResponse(url="/download", status_code=303)
