@@ -489,7 +489,7 @@ unset Kestrel__Endpoints__Default__Url
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 # Debugging background task to verify local connectivity to Jellyfin
 (
-    sleep 5
+    sleep 15
     echo "=== Jellyfin Internal Connection Test ==="
     echo "Testing connection to 127.0.0.1:8097..."
     curl -I http://127.0.0.1:8097/health 2>&1
