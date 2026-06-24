@@ -10,7 +10,7 @@ while true; do
     sleep 300  # 5 minutes
     
     # 1. Local Health Check (helpful for Space logs)
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8097/health 2>/dev/null)
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8096/health 2>/dev/null)
     if [ "$HTTP_CODE" = "200" ]; then
         echo "[keep-alive] $(date '+%H:%M:%S') - Jellyfin healthy (HTTP $HTTP_CODE)"
     else
