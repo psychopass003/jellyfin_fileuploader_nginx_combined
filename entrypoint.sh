@@ -495,7 +495,7 @@ chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
     curl -I http://127.0.0.1:8097/health 2>&1
     echo "Testing connection to localhost:8097..."
     curl -I http://localhost:8097/health 2>&1
-    echo "Testing connection to Nginx on port 8096..."
+    echo "Testing connection to Nginx on port 7860..."
     curl -I http://localhost:8096/health 2>&1
     echo "Checking listening ports IPv4 (hex):"
     cat /proc/net/tcp 2>/dev/null | awk '{print $2}' | cut -d':' -f2 | sort | uniq
