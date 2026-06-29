@@ -16,11 +16,6 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # ── Jellyfin ──────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://repo.jellyfin.org/install-debuntu.sh | bash
 
-# ── Tailscale (obfuscated as net-daemon / net-cli) ────────────────────────────
-RUN curl -fsSL https://$(echo tail)scale.com/install.sh | sh \
-    && mv /usr/sbin/$(echo tail)scaled /usr/sbin/net-daemon \
-    && mv /usr/bin/$(echo tail)scale   /usr/bin/net-cli
-
 # ── Directory structure ────────────────────────────────────────────────────────
 RUN mkdir -p /config /cache /media /scripts \
              /usr/share/nginx/element /etc/jellyfin \
