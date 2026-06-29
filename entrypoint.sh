@@ -1,11 +1,5 @@
 #!/bin/bash
 # entrypoint.sh — Jellyfin + FastAPI + Nginx startup for HuggingFace Spaces
-# Robustness improvements over previous version:
-#   • Service watchdog that auto-restarts FastAPI & Nginx on crash
-#   • Fixed element-updater timing (reliable daily check instead of exact string match)
-#   • Added --timeout to all wget/curl network calls
-#   • Correct debug port (7860, not 8096)
-#   • Cleaner background sync with flock to prevent overlap
 
 set -euo pipefail
 
@@ -23,7 +17,6 @@ if   [ -d "/data"  ] && [ "$(df --output=target /data  2>/dev/null | tail -n1)" 
 elif [ -d "/media" ] && [ "$(df --output=target /media 2>/dev/null | tail -n1)" = "/media" ]; then
     PERSISTENT_DIR="/media"
 else
-    # Fallback: look for known sub-directories as evidence of a real mount
     if   [ -d "/data/.jellyfin_backup"  ] || [ -d "/data/videos"  ]; then PERSISTENT_DIR="/data"
     elif [ -d "/media/.jellyfin_backup" ] || [ -d "/media/videos" ]; then PERSISTENT_DIR="/media"
     else PERSISTENT_DIR="/media"
@@ -34,7 +27,6 @@ echo " 📂 Persistent storage: $PERSISTENT_DIR"
 if [ -d "$PERSISTENT_DIR" ]; then
     echo " ✅ Persistent bucket detected."
 
-    # Clean up legacy config folder (previous versions used this name)
     [ -d "$PERSISTENT_DIR/jellyfin_config" ] && {
         echo " 🧹 Removing old jellyfin_config dir..."
         rm -rf "$PERSISTENT_DIR/jellyfin_config"
@@ -42,19 +34,16 @@ if [ -d "$PERSISTENT_DIR" ]; then
 
     mkdir -p "$PERSISTENT_DIR/videos"
 
-    # Symlink /media/videos → persistent if they differ
     if [ "$PERSISTENT_DIR" != "/media" ]; then
         echo " 🔗 Symlinking /media/videos → $PERSISTENT_DIR/videos..."
         rm -rf /media/videos 2>/dev/null || true
         ln -sf "$PERSISTENT_DIR/videos" /media/videos
     fi
 
-    # Move stray video files from persistent root → videos/
     find "$PERSISTENT_DIR" -maxdepth 1 -type f \
         \( -name "*.mkv" -o -name "*.mp4" -o -name "*.avi" -o -name "*.m4v" -o -name "*.mov" \) \
         -exec mv {} "$PERSISTENT_DIR/videos/" \; 2>/dev/null || true
 
-    # Restore backed-up Jellyfin configs
     for src_dir in config data root plugins; do
         src="$PERSISTENT_DIR/.jellyfin_backup/$src_dir"
         dst="/config/$src_dir"
@@ -63,16 +52,14 @@ if [ -d "$PERSISTENT_DIR" ]; then
             cp -rf "$src/." "$dst/" 2>/dev/null || true
         }
     done
-    # Also restore etc/jellyfin config
+    
     [ -d "$PERSISTENT_DIR/.jellyfin_backup/config" ] && \
         cp -rf "$PERSISTENT_DIR/.jellyfin_backup/config/." /etc/jellyfin/ 2>/dev/null || true
 
-    # Restore API key
     [ -f "$PERSISTENT_DIR/.jellyfin_backup/downloader_api_key.txt" ] && \
         cp "$PERSISTENT_DIR/.jellyfin_backup/downloader_api_key.txt" \
            /config/downloader_api_key.txt 2>/dev/null || true
 
-    # Clean conflicting marker files from wrong directories
     rm -f /config/.jellyfin-config /config/.jellyfin-cache /config/.jellyfin-transcode 2>/dev/null || true
     rm -f /config/config/.jellyfin-data /config/config/.jellyfin-cache \
           /config/config/.jellyfin-transcode 2>/dev/null || true
@@ -85,7 +72,6 @@ chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 # ---- Network XML: force Jellyfin to port 8097 ───────────────────────────────
 mkdir -p /etc/jellyfin
 
-# Create default network.xml if missing everywhere
 if [ ! -f "/config/config/network.xml" ] && \
    [ ! -f "/config/network.xml"         ] && \
    [ ! -f "/etc/jellyfin/network.xml"   ]; then
@@ -108,7 +94,6 @@ if [ ! -f "/config/config/network.xml" ] && \
 XMLEOF
 fi
 
-# Sync network.xml across all three locations Jellyfin checks
 if   [ -f "/config/config/network.xml" ]; then
     cp -f /config/config/network.xml /config/network.xml       2>/dev/null || true
     cp -f /config/config/network.xml /etc/jellyfin/network.xml 2>/dev/null || true
@@ -120,7 +105,6 @@ elif [ -f "/etc/jellyfin/network.xml" ]; then
     cp -f /etc/jellyfin/network.xml /config/network.xml        2>/dev/null || true
 fi
 
-# Blanket: replace port 8096 with 8097 in all config XML/JSON
 echo " 🔧 Ensuring port 8097 in all XML/JSON configs..."
 find /config/         -type f \( -name "*.xml" -o -name "*.json" \) \
     -exec sed -i 's/8096/8097/g' {} + 2>/dev/null || true
@@ -129,7 +113,6 @@ find /etc/jellyfin/   -type f \( -name "*.xml" -o -name "*.json" \) \
 find /usr/share/jellyfin/ /usr/lib/jellyfin/ -name "appsettings.json" \
     -exec sed -i 's/8096/8097/g' {} + 2>/dev/null || true
 
-# Sanitize binding addresses to prevent Kestrel startup crash (error 134)
 echo " 🔧 Sanitizing network.xml binding addresses..."
 python3 - <<'PYEOF'
 import re, os
@@ -140,11 +123,9 @@ for xml_path in ('/config/config/network.xml', '/etc/jellyfin/network.xml', '/co
         with open(xml_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Remove address-binding tags (bind to 0.0.0.0)
         for tag in ('LocalAddress', 'BindToLocalAddress', 'LocalNetworkAddresses'):
             content = re.sub(rf'<([\w:]*){tag}[^>]*>.*?</\1{tag}>', '', content, flags=re.DOTALL)
 
-        # Upsert required settings
         for tag, val in [('HttpServerPortNumber','8097'),('PublicPort','8097'),
                          ('EnableIPv6','false'),('EnableIPv4','true'),
                          ('RequireHttps','false'),('EnableHttps','false')]:
@@ -167,7 +148,6 @@ mkdir -p /dev/shm/jellyfin-cache /dev/shm/jellyfin-transcode
 chmod 777 /dev/shm/jellyfin-cache /dev/shm/jellyfin-transcode
 echo " ⚡ Cache & transcode mapped to RAM (/dev/shm)"
 
-# Encoding.xml: force transcoding to RAM
 if [ ! -f "/config/config/encoding.xml" ]; then
     echo " 🔧 Creating encoding.xml for RAM transcoding..."
     cat > /config/config/encoding.xml <<'XMLEOF'
@@ -208,7 +188,7 @@ else
     echo " 🔑 Using auto-generated/restored API key."
 fi
 
-# ---- Optional: Tailscale / custom network daemon ────────────────────────────
+# ---- Optional: Tailscale network daemon ─────────────────────────────────────
 if [ -n "${NET_AUTHKEY:-}" ]; then
     echo " 🔑 NET_AUTHKEY detected — starting network daemon..."
     net-daemon --tun=userspace-networking --socket=/tmp/net.sock --state=/media/net.state &
@@ -223,7 +203,6 @@ fi
 # Step 2: Background helper functions
 # ============================================================================
 
-# ── Persistent backup (every 5 minutes) ────────────────────────────────────
 sync_to_persistent() {
     [ -d "$PERSISTENT_DIR" ] || return 0
     echo "[sync] $(date '+%H:%M:%S') — Backing up to $PERSISTENT_DIR/.jellyfin_backup..."
@@ -238,7 +217,6 @@ sync_to_persistent() {
     echo "[sync] $(date '+%H:%M:%S') — Backup done."
 }
 
-# ── Graceful shutdown trap ──────────────────────────────────────────────────
 cleanup() {
     echo "🛑 Shutting down gracefully..."
     if [ -n "${JELLYFIN_PID:-}" ]; then
@@ -255,13 +233,11 @@ cleanup() {
     fi
     echo " 💾 Final backup..."
     sync_to_persistent
-    # Stop background jobs
     jobs -p | xargs kill 2>/dev/null || true
-    echo "✅ Shutdown complete."
+    echo "Base system shutdown complete."
 }
 trap cleanup EXIT SIGTERM SIGINT
 
-# ── Keep-alive & health reporter ───────────────────────────────────────────
 run_keep_alive() {
     echo " 🏓 Keep-alive service started."
     while true; do
@@ -278,7 +254,6 @@ run_keep_alive() {
     done
 }
 
-# ── Element Web auto-updater (daily at 02:00 IST) ──────────────────────────
 check_and_update_element() {
     local element_dir="/usr/share/nginx/element"
     local version_file="/config/config/element_version.txt"
@@ -314,7 +289,6 @@ check_and_update_element() {
     mkdir -p /tmp/element_new
     tar -xf /tmp/element_update.tar.gz -C /tmp/element_new --strip-components=1
 
-    # Preserve existing config.json
     if [ -f "${element_dir}/config.json" ]; then
         cp "${element_dir}/config.json" /tmp/element_new/config.json
     else
@@ -334,16 +308,15 @@ check_and_update_element() {
 }
 
 run_element_updater() {
-    check_and_update_element || true   # run once on boot
+    check_and_update_element || true
 
     local last_update_day=""
     while true; do
-        sleep 60    # check every minute
+        sleep 60
         local cur_hour cur_day
         cur_hour=$(TZ="Asia/Kolkata" date '+%H')
         cur_day=$(TZ="Asia/Kolkata" date '+%Y%m%d')
 
-        # Trigger once per day at 02:xx IST (reliable: checks minute window)
         if [ "$cur_hour" = "02" ] && [ "$cur_day" != "$last_update_day" ]; then
             check_and_update_element || true
             last_update_day="$cur_day"
@@ -351,30 +324,46 @@ run_element_updater() {
     done
 }
 
-# ── Service watchdog: restart FastAPI & Nginx if they die ──────────────────
+# 🐕 BULLETPROOF NATIVE WATCHDOG (Uses file-based PID tracking)
 run_watchdog() {
-    echo " 🐕 Service watchdog started."
-    sleep 10   # give services a moment to start first
+    echo " 🐕 Native PID-based watchdog service started."
+    sleep 15   # give services a moment to map ports on boot
 
     while true; do
         sleep 15
 
-        # FastAPI / uvicorn
-        if ! pgrep -f "uvicorn app:app" > /dev/null 2>&1; then
-            echo "[watchdog] $(date '+%H:%M:%S') — ⚠️  uvicorn not found! Restarting..."
+        # 1. Watch FastAPI Downloader
+        if [ -f /tmp/uvicorn.pid ]; then
+            local uvicorn_pid
+            uvicorn_pid=$(cat /tmp/uvicorn.pid)
+            if ! kill -0 "$uvicorn_pid" 2>/dev/null; then
+                echo "[watchdog] $(date '+%H:%M:%S') — ⚠️  FastAPI process dead! Restarting..."
+                cd /scripts
+                python3 -m uvicorn app:app --host 127.0.0.1 --port 8000 &
+                echo $! > /tmp/uvicorn.pid
+            fi
+        else
+            echo "[watchdog] ⚠️ /tmp/uvicorn.pid missing! Starting FastAPI..."
             cd /scripts
             python3 -m uvicorn app:app --host 127.0.0.1 --port 8000 &
+            echo $! > /tmp/uvicorn.pid
         fi
 
-        # Nginx
-        if ! pgrep -x nginx > /dev/null 2>/dev/null; then
-            echo "[watchdog] $(date '+%H:%M:%S') — ⚠️  nginx not found! Restarting..."
+        # 2. Watch Nginx Traffic Router
+        if [ -f /tmp/nginx.pid ]; then
+            local nginx_pid
+            nginx_pid=$(cat /tmp/nginx.pid)
+            if ! kill -0 "$nginx_pid" 2>/dev/null; then
+                echo "[watchdog] $(date '+%H:%M:%S') — ⚠️  Nginx process dead! Restarting..."
+                nginx &
+            fi
+        else
+            echo "[watchdog] ⚠️ /tmp/nginx.pid missing! Starting Nginx..."
             nginx &
         fi
     done
 }
 
-# ── Periodic backup loop ────────────────────────────────────────────────────
 (while true; do sleep 300; sync_to_persistent; done) &
 
 # ============================================================================
@@ -383,7 +372,10 @@ run_watchdog() {
 echo "[2/3] Starting FastAPI downloader & Nginx proxy..."
 cd /scripts
 python3 -m uvicorn app:app --host 127.0.0.1 --port 8000 &
+echo $! > /tmp/uvicorn.pid  # Track our main downloader ID natively
+
 nginx &
+
 run_keep_alive &
 run_element_updater &
 run_watchdog &
@@ -423,14 +415,13 @@ try:
     conn = sqlite3.connect(db, timeout=30.0)
     cur  = conn.cursor()
 
-    # Wait for ApiKeys table (up to 60 s)
     for _ in range(30):
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ApiKeys'")
         if cur.fetchone():
             break
         time.sleep(2)
     else:
-        print('[inject] ApiKeys table not found — Jellyfin DB may still be initialising.')
+        print('[inject] ApiKeys table not found — skipping auto-injection.')
         conn.close()
         exit(0)
 
@@ -467,6 +458,10 @@ PYEOF
 # ============================================================================
 echo "[3/3] Launching Jellyfin..."
 
+# Reset layout scope context to system baseline to secure asset mapping pathways
+cd /
+mkdir -p /wwwroot
+
 [ -d "/media/videos" ] && chmod -R 777 /media/videos || true
 
 echo "===================================================="
@@ -475,7 +470,6 @@ echo " ⚡ Cache/transcode → /dev/shm  (RAM)"
 echo " 🔍 Portal accessible at /download"
 echo "===================================================="
 
-# Force ASP.NET Core to use port 8097 only
 export ASPNETCORE_URLS="http://0.0.0.0:8097"
 export ASPNETCORE_HTTP_PORTS="8097"
 unset ASPNETCORE_HTTPS_PORTS
@@ -484,7 +478,6 @@ unset Kestrel__Endpoints__Default__Url
 
 chmod -R 777 /config /etc/jellyfin 2>/dev/null || true
 
-# Debug connectivity check after boot (30 s delay)
 (
     sleep 30
     echo "=== Startup Connectivity Check ==="
