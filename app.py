@@ -19,7 +19,7 @@ SECRET_TOKEN  = os.environ.get("STORAGE_PASSWORD")   # portal passcode
 TOTP_SECRET   = os.environ.get("TOTP_SECRET")         # base32 2FA seed
 totp          = pyotp.TOTP(TOTP_SECRET) if TOTP_SECRET else None
 DATA_DIR      = "/media/videos"
-JELLYFIN_URL  = "http://127.0.0.1:8097"
+JELLYFIN_URL  = "http://127.0.0.1:8096"
 
 if not SECRET_TOKEN or not TOTP_SECRET:
     print("=" * 52)
